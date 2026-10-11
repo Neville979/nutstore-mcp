@@ -1,0 +1,4 @@
+# Runtime dependencies; keep consistent with pyproject.toml.
+mcp>=1.12,<2
+webdavclient3>=3.14,<4
+python-dotenv>=1,<2

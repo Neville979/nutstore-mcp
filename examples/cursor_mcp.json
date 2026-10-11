@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "nutstore": {
+      "command": "C:\\path\\to\\nutstore-mcp\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "nutstore_mcp.server"],
+      "env": {
+        "NUTSTORE_ENV_FILE": "C:\\path\\to\\nutstore-mcp\\.env"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+Nutstore MCP Server
+Copyright 2026 Neville
+
+Licensed under the Apache License, Version 2.0.
+This project is an independent integration and is not affiliated with,
+sponsored by, or endorsed by Nutstore. Nutstore and 坚果云 are trademarks
+of their owner and are used here only to identify the compatible service.
+
+The following packages are separate dependencies and are not relicensed
+under Apache-2.0:
+
+- mcp, MIT License
+- webdavclient3, MIT License
+- python-dotenv, BSD-3-Clause License

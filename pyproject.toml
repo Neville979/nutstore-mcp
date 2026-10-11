@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nutstore-mcp"
+version = "0.1.0"
+description = "Read-only MCP access to Nutstore knowledge bases through WebDAV"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "Neville"}]
+dependencies = ["mcp>=1.12,<2", "webdavclient3>=3.14,<4", "python-dotenv>=1,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+nutstore-mcp = "nutstore_mcp.server:main"
+nutstore-webdav-test = "nutstore_mcp.webdav:main"
+nutstore-mcp-test = "nutstore_mcp.smoke:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
