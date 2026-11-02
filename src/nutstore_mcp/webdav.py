@@ -1,4 +1,4 @@
-"""Read-only WebDAV adapter and direct connectivity command."""
+"""Scoped WebDAV adapter and direct connectivity command."""
 import argparse
 import json
 import sys
@@ -42,6 +42,7 @@ class NutstoreWebDAV:
         url = urlsplit(settings.url)
         self._auth = (settings.username, settings.password)
         self._timeout = settings.timeout
+        self._write_root = settings.write_root
         self.client = Client({
             'webdav_hostname': f'{url.scheme}://{url.netloc}',
             'webdav_root': url.path,
@@ -76,13 +77,14 @@ class NutstoreWebDAV:
             # Upstream exceptions can include URLs; never emit credentials.
             raise RuntimeError(REQUEST_ERROR) from None
 
-    def read_file(self, path: str, max_bytes: int = 262144) -> dict:
+    def read_file(self, path: str, max_bytes: int = 262144, include_etag: bool = False) -> dict:
         """Read bounded UTF-8 text. Never silently truncate a document."""
         path = validate_path(path)
         validate_budget('max_bytes', max_bytes, 1, 1048576)
         if not path or path.endswith('/') or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES:
             raise ValueError('Use a supported text file: md, markdown, txt, json, csv, yaml, yml or rst.')
         data = bytearray()
+        etag = None
         try:
             # Direct streamed GET avoids download_from's extra metadata requests and
             # unbounded buffer. Do not follow redirects outside the configured root.
@@ -92,6 +94,7 @@ class NutstoreWebDAV:
             ) as response:
                 if not 200 <= response.status_code < 300:
                     raise RuntimeError(REQUEST_ERROR)
+                etag = response.headers.get('ETag')
                 for chunk in response.iter_content(chunk_size=min(8192, max_bytes + 1)):
                     if len(data) + len(chunk) > max_bytes:
                         raise ValueError('File exceeds max_bytes limit; request a smaller file or increase the limit.')
@@ -104,7 +107,99 @@ class NutstoreWebDAV:
             raise ValueError('File is not UTF-8 text; binary and other encodings are unsupported.') from None
         if any(ord(char) < 32 and char not in '\t\n\r\f' for char in content):
             raise ValueError('File contains binary control characters; only text files are supported.')
-        return {'path': path, 'content': content, 'encoding': 'utf-8', 'byte_count': len(data)}
+        result = {'path': path, 'content': content, 'encoding': 'utf-8', 'byte_count': len(data)}
+        if include_etag:
+            result['etag'] = etag
+        return result
+
+    def _writable_path(self, path: str, *, directory: bool = False) -> str:
+        path = validate_path(path).rstrip('/') if directory else validate_path(path)
+        root = validate_path(self._write_root).rstrip('/') if self._write_root else ''
+        if not root:
+            raise PermissionError('Writes are disabled. Set NUTSTORE_WRITE_ROOT explicitly.')
+        if not path or (path != root and not path.startswith(root + '/')):
+            raise PermissionError('Write path is outside NUTSTORE_WRITE_ROOT.')
+        if not directory and (path.endswith('/') or PurePosixPath(path).suffix.lower() not in ('.md', '.markdown')):
+            raise ValueError('Only Markdown files inside NUTSTORE_WRITE_ROOT are writable.')
+        return path
+
+    def _mkcol(self, path: str) -> bool:
+        urn = Urn(path, directory=True)
+        try:
+            with self.client.session.request(
+                'MKCOL', self.client.get_url(urn.quote()), auth=self._auth,
+                timeout=self._timeout, allow_redirects=False,
+            ) as response:
+                if response.status_code == 201:
+                    return True
+                if response.status_code != 405:
+                    raise RuntimeError(REQUEST_ERROR)
+            # 405 can mean "directory already exists" or "MKCOL unsupported";
+            # accept it only after verifying a real DAV directory exists.
+            with self.client.session.request(
+                'PROPFIND', self.client.get_url(urn.quote()), auth=self._auth,
+                headers={'Depth': '0'}, timeout=self._timeout, allow_redirects=False,
+            ) as response:
+                if response.status_code != 207:
+                    raise RuntimeError(REQUEST_ERROR)
+                tree = ElementTree.fromstring(response.content)
+                if tree.tag != '{DAV:}multistatus' or not tree.findall('{DAV:}response'):
+                    raise RuntimeError(REQUEST_ERROR)
+            return False
+        except (RequestException, ElementTree.ParseError):
+            raise RuntimeError(REQUEST_ERROR) from None
+
+    def create_directory(self, path: str) -> dict:
+        """Create a scoped directory and any missing descendants of write_root."""
+        path = self._writable_path(path, directory=True)
+        root = self._write_root.rstrip('/')
+        tail = path[len(root):].strip('/')
+        directories = [root]
+        for segment in tail.split('/') if tail else []:
+            directories.append(directories[-1] + '/' + segment)
+        created = [directory for directory in directories if self._mkcol(directory)]
+        return {'path': path + '/', 'created': created}
+
+    def write_file(self, path: str, content: str, expected_etag: str | None = None) -> dict:
+        """Create Markdown only if absent, or replace only with a known ETag."""
+        path = self._writable_path(path)
+        if not isinstance(content, str):
+            raise ValueError('content must be UTF-8 text.')
+        if any(ord(ch) < 32 and ch not in '\t\n\r\f' for ch in content):
+            raise ValueError('content contains unsupported control characters.')
+        data = content.encode('utf-8')
+        if len(data) > 1048576:
+            raise ValueError('Markdown write exceeds the 1 MiB limit.')
+        if expected_etag is not None and (
+            not isinstance(expected_etag, str) or not expected_etag.strip()
+            or expected_etag == '*' or len(expected_etag) > 256
+            or any(ch in expected_etag for ch in '\r\n')
+        ):
+            raise ValueError('expected_etag must be an exact non-empty ETag from read_file.')
+        self.create_directory(path.rpartition('/')[0])
+        headers = {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            ('If-Match' if expected_etag is not None else 'If-None-Match'):
+                (expected_etag if expected_etag is not None else '*'),
+        }
+        try:
+            with self.client.session.request(
+                'PUT', self.client.get_url(Urn(path).quote()), auth=self._auth,
+                headers=headers, data=data, timeout=self._timeout, allow_redirects=False,
+            ) as response:
+                if response.status_code == 412:
+                    raise FileExistsError('Remote version changed or file exists; read and merge before retrying.')
+                if response.status_code not in (200, 201, 204):
+                    raise RuntimeError(REQUEST_ERROR)
+        except RequestException:
+            raise RuntimeError(REQUEST_ERROR) from None
+        verified = self.read_file(path, max_bytes=max(1, len(data)), include_etag=True)
+        if verified['content'] != content:
+            raise RuntimeError('WebDAV write verification failed; inspect the remote file before retrying.')
+        return {
+            'path': path, 'byte_count': len(data), 'created': expected_etag is None,
+            'etag': verified['etag'], 'verified': True,
+        }
 
     class WalkState:
         def __init__(self):

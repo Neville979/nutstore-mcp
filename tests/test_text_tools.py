@@ -258,6 +258,7 @@ def test_mcp_text_tools_roundtrip(text_dav):
                 tools = await session.list_tools()
                 assert {tool.name for tool in tools.tools} == {
                     'check_connection', 'list_directory', 'read_file', 'search_file', 'search_content',
+                    'create_directory', 'write_file',
                 }
                 reading = await session.call_tool('read_file', {'path': '资料/Control.MD'})
                 assert not reading.isError

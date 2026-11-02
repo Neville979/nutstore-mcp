@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nutstore-mcp"
-version = "0.1.0"
-description = "Read-only MCP access to Nutstore knowledge bases through WebDAV"
+version = "0.1.1"
+description = "Scoped Markdown read/write and text search for Nutstore through WebDAV MCP"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

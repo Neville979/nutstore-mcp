@@ -73,6 +73,7 @@ def test_mcp_subprocess_roundtrip(dav):
                 tools = await session.list_tools()
                 assert {t.name for t in tools.tools} == {
                     'check_connection', 'list_directory', 'read_file', 'search_file', 'search_content',
+                    'create_directory', 'write_file',
                 }
                 connection = await session.call_tool('check_connection', {})
                 assert not connection.isError

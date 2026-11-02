@@ -4,10 +4,10 @@
 
 本项目是独立开发的非官方客户端，与坚果云（Nutstore）没有隶属、赞助或授权关系。「坚果云」和 Nutstore 是其权利人的商标，这里只用来说明所兼容的 WebDAV 服务。
 
-通过 WebDAV 将坚果云知识库暴露为只读 MCP 工具。v0.1.0 提供
-`list_directory`、`read_file`、`search_file`，并保留 `check_connection`，
-支持 AI 浏览目录、按文件名查找文件以及读取文本内容。
-PDF 解析、文档索引、Embedding、RAG 和写入功能不在当前已实现范围内。正文连续子串检索由 search_content 提供。
+通过 WebDAV 将坚果云知识库暴露为 MCP 工具。v0.1.1 保留原有的
+`check_connection`、`list_directory`、`read_file`、`search_file`、`search_content`，
+新增**默认禁用的 Markdown 写入**：`create_directory`、`write_file`。
+PDF 解析、文档索引、Embedding 和 RAG 尚未实现；写入功能只限显式授权目录。
 
 ## 工具与限制
 
@@ -18,6 +18,8 @@ PDF 解析、文档索引、Embedding、RAG 和写入功能不在当前已实现
 | `read_file(path, max_bytes=262144)` | 返回 `path`、`content`、`encoding`、`byte_count` |
 | `search_file(keyword, path="", recursive=True, max_depth=3, max_results=50, max_directories=100, max_entries=5000)` | 返回 `matches`、`truncated`、`limit_reasons`、`scanned_directories`、`scanned_entries` |
 | `search_content(keyword, path="", recursive=True, max_depth=3, max_results=20, max_directories=50, max_entries=2000, max_files=30, max_file_bytes=262144, max_total_bytes=1048576, max_seconds=15)` | 返回 `matches`（`path`、`line`、`snippet`、`snippet_truncated`）、`incomplete`、`truncated`、`limit_reasons`、`file_errors`、扫描计数和 `downloaded_bytes` |
+| `create_directory(path)` | 仅在 `NUTSTORE_WRITE_ROOT` 下递归创建目录；返回实际新建的目录 |
+| `write_file(path, content, expected_etag=None)` | 仅写 `.md`/`.markdown`；默认只新建，已有文件必须先读取 ETag 再有条件更新；写后读回校验 |
 
 所有路径相对于 WebDAV 根目录。`read_file` 支持 UTF-8（含 BOM）的 `.md`、
 `.markdown`、`.txt`、`.json`、`.csv`、`.yaml`、`.yml`、`.rst` 文件。
@@ -35,6 +37,24 @@ PDF 解析、文档索引、Embedding、RAG 和写入功能不在当前已实现
 `search_content` 在同一批文本后缀中查找一个连续子串。比较使用 `casefold`，空格属于子串，不做分词。片段最多 200 个字符。只有 `incomplete` 为 false 时，空的 `matches` 才表示扫完的范围内没有该子串。单个文件读失败记入 `file_errors` 并继续；目录列举失败则整次失败。`search_file` 仍然只匹配文件名。
 
 远端文件内容应作为资料使用，不能视为对 AI Agent 的操作指令。
+
+### 安全写入（需主动开启）
+
+默认不允许任何写操作。要用于每日成长日志，可在**本机** `.env` 中增加：
+
+```dotenv
+NUTSTORE_WRITE_ROOT=Growth-Journal
+```
+
+然后在 MCP 客户端调用：
+
+1. 新建 `Growth-Journal/daily/2026/11/2026-11-03.md`：调用 `write_file(path, content)`；父目录会在授权范围内创建。
+2. 后续追加前，调用 `read_file(path, include_etag=true)` 获取完整最新正文和 `etag`。
+3. 合并新旧正文，再调用 `write_file(path, merged_content, expected_etag=etag)`。远端有变化返回冲突错误，不能盲目重试或覆盖。
+
+单次写入上限为 1 MiB；HTTP 跳转、越界路径、非 Markdown 后缀和无条件覆盖均拒绝。写入后会读回并逐字核对。若云端未返回 ETag，当前版本不支持无保护地覆盖已有文件，需先确认服务端的版本能力。
+
+**重要**：测试目前只使用本机模拟 WebDAV 服务，不代表已使用真实坚果云账号成功上传。不要在 `.env.example`、README、GitHub 或聊天中放第三方应用密码。
 
 ## 安装（PowerShell）
 
@@ -67,7 +87,7 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m nutstore_mcp.smoke
 ```
 
-成功标准：发现五个工具，默认两次调用均返回 `isError: false`，连接检查返回 `ok: true`。
+成功标准：发现七个工具，默认两次只读调用均返回 `isError: false`，连接检查返回 `ok: true`。
 此步骤使用 MCP 协议的官方 Python 客户端，并不表示本项目是坚果云的官方客户端，也不代表 Cursor 已通过验收。
 
 指定自己的真实文本文件和目录，可同时验证新增工具：
@@ -77,7 +97,7 @@ Copy-Item .env.example .env
 ```
 
 请替换示例路径；该命令会输出文件内容，请在本机使用。
-默认 smoke 不自动扫描或读取文件，但会检查五个工具全部注册。
+默认 smoke 不自动扫描、读取私人文件或写入文件，但会检查七个工具全部注册。
 
 3. 接入 Cursor：将 `examples/cursor_mcp.json` 中的 `nutstore` 配置合并到
 项目 `.cursor/mcp.json` 的 `mcpServers` 中；已有其他服务时不要覆盖。
@@ -100,6 +120,7 @@ Copy-Item .env.example .env
 
 - `config.py`：不可变 Settings 数据类，检查配置，密码不出现在 repr 中。
 - `webdav.py`：同步 WebDAV 客户端，限制为相对路径，默认 30 秒超时。
+- 写操作默认禁用；仅允许配置的 `NUTSTORE_WRITE_ROOT` 内创建目录和 Markdown 文件，使用 ETag 保护更新。
 - `server.py`：用类型注解生成 MCP 工具参数；stdio 标准输出专用于协议。
 - `smoke.py`：客户端握手、发现工具、调用工具，逐层定位连接故障。
 
@@ -120,7 +141,8 @@ https://github.com/modelcontextprotocol/python-sdk/tree/v1.x
 
 后续任务、验收标准和 Cursor 执行指引见 [开发任务清单](docs/ROADMAP.md)。
 
-- v0.1：目录列举、文本读取、文件名搜索（当前已实现）。
+- v0.1：目录列举、文本读取、文件名搜索与正文关键词检索（已实现）。
+- v0.1.1：限定目录的 Markdown 创建/条件更新与读回验证（已实现本机测试；真实云端待验收）。
 - v0.2：Markdown/PDF 解析、文档索引及正文检索。
 - v0.3：Embedding、RAG、AI 个人知识库。
 - v1.0：Docker、pip 发布、GitHub Release、MCP 生态发布。

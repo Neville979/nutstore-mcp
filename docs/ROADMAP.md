@@ -15,18 +15,21 @@
 | 阶段 | 功能 | 当前状态 |
 | --- | --- | --- |
 | v0.1 | 连接检查、目录列举、文本读取、文件名搜索 | 已实现；新增工具的 Cursor 验收待完成 |
+| v0.1.1 | 授权目录内 Markdown 创建、条件更新、读回核验 | 已实现本机模拟测试；真实坚果云和客户端写入待验收 |
 | v0.2 | Markdown/PDF 解析、文档索引、正文全文检索 | 正文关键词检索已实现；结构解析、PDF 与索引仍待开发 |
 | v0.3 | Embedding、语义检索、RAG | 待开发 |
 | v1.0 | Docker、pip 发布、GitHub Release、MCP 生态发布 | 待完成；本地 wheel 已可构建 |
 
-当前工具：`check_connection`、`list_directory`、`read_file`、`search_file`、`search_content`。
+当前工具：`check_connection`、`list_directory`、`read_file`、`search_file`、`search_content`、`create_directory`、`write_file`。
 其中 `search_file` 只按文件名匹配，不搜索正文；`search_content` 在文本正文中搜索
 一个连续子串，返回相对路径、行号和命中片段。`read_file` 返回 UTF-8 文本原文，
 支持 BOM 和指定文本后缀；默认上限 256 KiB，硬上限 1 MiB。
 Markdown 原文读取与正文关键词检索已经具备；结构解析、文档索引和 PDF 仍待开发。
 当前没有缓存、增量索引或后台同步，每次文件名搜索需要查询远端目录。
 
-已有验证记录：本地 pytest 最近一次完整运行 73 项通过，依赖检查和本地 wheel 构建通过；
+已有验证记录：原有 73 项测试通过；2026-11-03 新增受控写入后，本地 pytest 完整运行 87 项通过。
+这些新结果仅来自本机模拟 WebDAV，真实坚果云写入、Cursor/ChatGPT 接入和 GitHub 私人备份均待验收。
+此前依赖检查和本地 wheel 构建通过；
 真实 MCP 子进程已注册五个工具，并成功调用既有工具，读取过一份 7115 字节的 Markdown 文件。
 这些是本次开发记录，后续改动后必须重新运行相关验证。
 早期 Cursor 验收仅覆盖连接检查和目录列举，不能代替新增工具验收。
@@ -35,7 +38,7 @@ Markdown 原文读取与正文关键词检索已经具备；结构解析、文�
 
 - 复用现有架构：`config.py` 管配置，`webdav.py` 管远端访问，`server.py` 注册工具，
   `smoke.py` 验证 MCP 链路。新模块仅在责任确实独立时增加，避免大规模重构。
-- 保持只读能力；上传、覆盖、移动、删除远端文件不在本路线范围内。
+- 保持原有只读能力；仅在显式配置写入根目录后允许 Markdown 的新建和 ETag 条件更新。移动、删除和强制覆盖仍不允许。
 - 保留四个现有工具的语义；正文搜索新增独立接口，不能把 `search_file` 悄悄改为全文搜索。
 - 路径保持相对于 WebDAV 根目录，维持路径校验、请求超时、读取和扫描预算。
 - 不恢复目录 HEAD 预检查：实际坚果云子目录可能 HEAD 403、PROPFIND 207。

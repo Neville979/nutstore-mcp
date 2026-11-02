@@ -13,6 +13,7 @@ class Settings:
     username: str
     password: str = field(repr=False)
     timeout: int = 30
+    write_root: str = ''
 
     @classmethod
     def from_env(cls):
@@ -31,4 +32,7 @@ class Settings:
         timeout = int(values.get('NUTSTORE_TIMEOUT', '30'))
         if not 1 <= timeout <= 120:
             raise ValueError('NUTSTORE_TIMEOUT must be between 1 and 120 seconds.')
-        return cls(url, values['NUTSTORE_USERNAME'].strip(), values['NUTSTORE_PASSWORD'], timeout)
+        return cls(
+            url, values['NUTSTORE_USERNAME'].strip(), values['NUTSTORE_PASSWORD'], timeout,
+            values.get('NUTSTORE_WRITE_ROOT', '').strip().strip('/'),
+        )

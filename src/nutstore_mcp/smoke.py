@@ -16,9 +16,12 @@ async def run(read_path: str | None = None, search_keyword: str | None = None, s
             await session.initialize()
             tools = await session.list_tools()
             print('Tools:', ', '.join(t.name for t in tools.tools))
-            expected = {'check_connection', 'list_directory', 'read_file', 'search_file', 'search_content'}
+            expected = {
+                'check_connection', 'list_directory', 'read_file', 'search_file',
+                'search_content', 'create_directory', 'write_file',
+            }
             if {tool.name for tool in tools.tools} != expected:
-                raise RuntimeError('Expected all five read-only tools to be registered.')
+                raise RuntimeError('Expected all seven read and write tools to be registered.')
             calls = [('check_connection', {}), ('list_directory', {})]
             if search_keyword is not None:
                 calls.append(('search_file', {'keyword': search_keyword, 'path': search_path}))
